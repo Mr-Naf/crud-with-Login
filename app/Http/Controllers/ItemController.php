@@ -8,15 +8,11 @@ use Illuminate\Support\Facades\Validator;
 
 class ItemController extends Controller
 {
-    public function index(Request $request)
-    {
-        if ($request->ajax()) {
-            $items = Auth::user()->items()->latest()->get();
-            return response()->json($items);
-        }
-        return view('items.index');
-    }
+  public function index(Request $request)  {
+    $items = Auth::user()->items()->get();
+    return view('items.index', compact('items'));
 
+  }
       public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -29,8 +25,10 @@ class ItemController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        // Attach logged-in user automatically
-        $item = Auth::user()->items()->create($validator->validated());
+        // Create item with user_id
+        $data = $validator->validated();
+        $data['user_id'] = Auth::id();
+        $item = Item::create($data);
 
         return response()->json(['message' => 'Item created successfully', 'item' => $item], 201);
     }

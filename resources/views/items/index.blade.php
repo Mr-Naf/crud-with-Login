@@ -24,7 +24,20 @@
                         </tr>
                     </thead>
                     <tbody id="itemsTableBody">
-                        <!-- filled by AJAX -->
+                       @foreach ($items as $item)
+                          <tr>
+                            <td>{{ $item->id }}</td>
+                            <td>{{ $item->name }}</td>
+                            <td>{{ $item->description }}</td>
+                            <td>{{ $item->price }}</td>
+                            <td>
+                             <button data-id="{{ $item->id }}" class="btn btn-sm btn-primary me-1 editItem">Edit</button>
+                             <button data-id="{{ $item->id }}" class="btn btn-sm btn-danger deleteItem">Delete</button>
+                            </td>
+                          </tr>
+
+
+                       @endforeach
                     </tbody>
                 </table>
                 <div id="alertArea"></div>
@@ -70,8 +83,9 @@
     </div>
     @push('scripts')
         <script>
-            $(function() {
-                // Setup CSRF for all AJAX
+            $(document).ready(function() {
+
+                // ========== SETUP: Configure CSRF token for all AJAX requests ==========
                 $.ajaxSetup({
                     headers: {
                         'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content'),
@@ -79,119 +93,176 @@
                     }
                 });
 
-
-                // Load items on page load
-                loadItems();
-
-                // Open modal for create
+                // ========== ADD NEW ITEM: Open modal when "Add Item" button is clicked ==========
                 $('#createNewItem').click(function() {
-                    clearForm();
+                    // Clear the form and reset everything
+                    $('#itemForm')[0].reset();
+                    $('#item_id').val('');
+                    $('.text-danger').remove();
+
+                    // Set modal title and show modal
                     $('#modalTitle').text('Add Item');
                     $('#saveBtn').data('action', 'create');
                     $('#ajaxModal').modal('show');
                 });
 
-                // Submit form (create/update)
+                // ========== SAVE ITEM: Handle form submission (both create and update) ==========
                 $('#itemForm').on('submit', function(e) {
                     e.preventDefault();
-                    $('.text-danger').remove(); // clear old validation messages
+                    $('.text-danger').remove(); // Remove old validation error messages
 
+                    // Get the action (create or update) and prepare data
                     var action = $('#saveBtn').data('action') || 'create';
                     var itemId = $('#item_id').val();
                     var url = action === 'create' ? "{{ route('items.store') }}" : '/items/' + itemId;
                     var type = action === 'create' ? 'POST' : 'PUT';
 
-                    var data = {
+                    // Get form data
+                    var formData = {
                         name: $('#name').val(),
                         description: $('#description').val(),
                         price: $('#price').val()
                     };
 
-                    // Show loading state
+                    // Show loading state on save button
                     $('#saveBtn').prop('disabled', true).text('Saving...');
 
+                    // Send AJAX request to server
                     $.ajax({
-                            url: url,
-                            type: type,
-                            data: data,
-                            dataType: 'json'
-                        })
-                        .done(function(res) {
-                            $('#ajaxModal').modal('hide');
-                            clearForm();
-                            loadItems();
+                        url: url,
+                        type: type,
+                        data: formData,
+                        dataType: 'json'
+                    })
+                    .done(function(response) {
+                        // Hide the modal first
+                        $('#ajaxModal').modal('hide');
 
-                            // SweetAlert2 success toast
+                        // Get item data from response (handle different response formats)
+                        var item = response.item || response.data || response;
+                        var message = response.message || 'Operation completed successfully';
+
+                        if (action === 'create') {
+                            // CREATE: Add new row to the table
+                            var itemData = {
+                                id: item.id || 'New',
+                                name: item.name || $('#name').val(),
+                                description: item.description || $('#description').val(),
+                                price: item.price || $('#price').val()
+                            };
+
+                            // Build new row HTML and append to table
+                            var newRow = '<tr>' +
+                                '<td>' + itemData.id + '</td>' +
+                                '<td>' + itemData.name + '</td>' +
+                                '<td>' + (itemData.description || '') + '</td>' +
+                                '<td>' + (itemData.price || '') + '</td>' +
+                                '<td>' +
+                                '<button data-id="' + itemData.id + '" class="btn btn-sm btn-primary me-1 editItem">Edit</button>' +
+                                '<button data-id="' + itemData.id + '" class="btn btn-sm btn-danger deleteItem">Delete</button>' +
+                                '</td>' +
+                                '</tr>';
+                            $('#itemsTableBody').append(newRow);
+
+                            // Show success message with SweetAlert
                             Swal.fire({
                                 icon: 'success',
-                                title: res.message,
+                                title: 'Success!',
+                                text: 'Item created successfully!',
                                 timer: 2000,
-                                showConfirmButton: false,
-                                toast: true,
-                                position: 'top-end'
+                                showConfirmButton: false
                             });
-                        })
-                        .fail(function(xhr) {
-                            if (xhr.status === 422) {
-                                // Show validation errors below input fields
-                                var errors = xhr.responseJSON.errors;
-                                $.each(errors, function(k, v) {
-                                    $('#' + k).after('<div class="text-danger mt-1">' + v[0] +
-                                        '</div>');
-                                });
+                        } else {
+                            Swal.fire({
+                                icon: 'success',
+                                title: 'Success!',
+                                text: 'Item updated successfully!',
+                                timer: 2000,
+                                showConfirmButton: false
+                            });
+                        }
+                    })
+                    .fail(function(xhr) {
+                        console.log('Error:', xhr);
 
-                                // SweetAlert2 error toast for validation
-                                Swal.fire({
-                                    icon: 'error',
-                                    title: 'Please fix the validation errors',
-                                    timer: 2500,
-                                    showConfirmButton: false,
-                                    toast: true,
-                                    position: 'top-end'
-                                });
-                            } else {
-                                // SweetAlert2 error toast for general errors
-                                Swal.fire({
-                                    icon: 'error',
-                                    title: 'Something went wrong. Please try again.',
-                                    timer: 2500,
-                                    showConfirmButton: false,
-                                    toast: true,
-                                    position: 'top-end'
-                                });
-                            }
-                        })
-                        .always(function() {
-                            $('#saveBtn').prop('disabled', false).text('Save');
-                        });
+                        if (xhr.status === 422) {
+                            // VALIDATION ERRORS: Show validation errors below input fields
+                            var errors = xhr.responseJSON?.errors || {};
+                            $.each(errors, function(field, messages) {
+                                $('#' + field).after('<div class="text-danger mt-1">' + messages[0] + '</div>');
+                            });
+
+                            // Show validation error message with SweetAlert
+                            Swal.fire({
+                                icon: 'warning',
+                                title: 'Validation Error',
+                                text: 'Please fix the errors and try again.'
+                            });
+                        } else if (xhr.status === 500) {
+                            // SERVER ERROR: Show server error message
+                            console.error('Server Response:', xhr.responseText);
+                            Swal.fire({
+                                icon: 'error',
+                                title: 'Server Error',
+                                text: 'Something went wrong on the server. Please try again.'
+                            });
+                        } else {
+                            // OTHER ERRORS: Show general error message
+                            Swal.fire({
+                                icon: 'error',
+                                title: 'Error',
+                                text: 'Something went wrong. Status: ' + xhr.status
+                            });
+                        }
+                    })
+                    .always(function() {
+                        // Always restore the save button to normal state
+                        $('#saveBtn').prop('disabled', false).text('Save');
+                    });
                 });
 
-                // Click Edit -> load item and show modal
+                // ========== EDIT ITEM: Load item data and show modal when "Edit" button is clicked ==========
                 $(document).on('click', '.editItem', function() {
-                    var id = $(this).data('id');
-                    $.get('/items/' + id)
-                        .done(function(data) {
-                            clearForm();
-                            $('#modalTitle').text('Edit Item');
-                            $('#item_id').val(data.id);
-                            $('#name').val(data.name);
-                            $('#description').val(data.description);
-                            $('#price').val(data.price);
-                            $('#saveBtn').data('action', 'update');
-                            $('#ajaxModal').modal('show');
-                        })
-                        .fail(function() {
-                            showMessage('Could not fetch item data.', 'danger');
+                    var itemId = $(this).data('id');
+
+                    // Fetch item data from server
+                    $.get('/items/' + itemId)
+                    .done(function(itemData) {
+                        // Clear form and fill with item data
+                        $('#itemForm')[0].reset();
+                        $('#item_id').val('');
+                        $('.text-danger').remove();
+
+                        // Set modal title and fill form fields
+                        $('#modalTitle').text('Edit Item');
+                        $('#item_id').val(itemData.id);
+                        $('#name').val(itemData.name);
+                        $('#description').val(itemData.description);
+                        $('#price').val(itemData.price);
+                        $('#saveBtn').data('action', 'update');
+
+                        // Show the modal
+                        $('#ajaxModal').modal('show');
+                    })
+                    .fail(function() {
+                        // Show error message if item data cannot be loaded
+                        Swal.fire({
+                            icon: 'error',
+                            title: 'Error',
+                            text: 'Could not load item data. Please try again.'
                         });
+                    });
                 });
 
-                // Delete
+                // ========== DELETE ITEM: Confirm and delete item when "Delete" button is clicked ==========
                 $(document).on('click', '.deleteItem', function() {
-                    var id = $(this).data('id');
+                    var itemId = $(this).data('id');
+                    var tableRow = $(this).closest('tr');
 
+                    // Show confirmation dialog with SweetAlert
                     Swal.fire({
-                        title: 'Are you sure?',
-                        text: "This item will be permanently deleted!",
+                        title: 'Delete Item?',
+                        text: "This action cannot be undone!",
                         icon: 'warning',
                         showCancelButton: true,
                         confirmButtonColor: '#d33',
@@ -200,86 +271,36 @@
                         cancelButtonText: 'Cancel'
                     }).then((result) => {
                         if (result.isConfirmed) {
-                            // Proceed with AJAX delete
+                            // User confirmed, proceed with deletion
                             $.ajax({
-                                    url: '/items/' + id,
-                                    type: 'DELETE'
-                                })
-                                .done(function(res) {
-                                    loadItems();
-                                    Swal.fire('Deleted!', res.message, 'success');
-                                })
-                                .fail(function() {
-                                    Swal.fire('Error!', 'Delete failed.', 'error');
+                                url: '/items/' + itemId,
+                                type: 'DELETE'
+                            })
+                            .done(function(response) {
+                                // Remove the row from table
+                                tableRow.remove();
+
+                                // Show success message
+                                Swal.fire({
+                                    icon: 'success',
+                                    title: 'Deleted!',
+                                    text: 'Item has been deleted successfully.',
+                                    timer: 2000,
+                                    showConfirmButton: false
                                 });
+                            })
+                            .fail(function() {
+                                // Show error message if deletion failed
+                                Swal.fire({
+                                    icon: 'error',
+                                    title: 'Error',
+                                    text: 'Failed to delete item. Please try again.'
+                                });
+                            });
                         }
                     });
                 });
 
-                // helper: load items list
-                function loadItems() {
-                    $.ajax({
-                            url: "{{ route('items.index') }}",
-                            type: 'GET',
-                            dataType: 'json'
-                        })
-                        .done(function(data) {
-                            var rows = '';
-                            if (data.length === 0) {
-                                rows = '<tr><td colspan="5" class="text-center">No items found.</td></tr>';
-                            } else {
-                                $.each(data, function(i, item) {
-                                    rows += '<tr>' +
-                                        '<td>' + item.id + '</td>' +
-                                        '<td>' + escapeHtml(item.name) + '</td>' +
-                                        '<td>' + (item.description ? escapeHtml(item.description) : '') +
-                                        '</td>' +
-                                        '<td>' + (item.price !== null ? item.price : '') + '</td>' +
-                                        '<td>' +
-                                        '<button data-id="' + item.id +
-                                        '" class="btn btn-sm btn-primary me-1 editItem">Edit</button>' +
-                                        '<button data-id="' + item.id +
-                                        '" class="btn btn-sm btn-danger deleteItem">Delete</button>' +
-                                        '</td>' +
-                                        '</tr>';
-                                });
-                            }
-                            $('#itemsTableBody').html(rows);
-                        })
-                        .fail(function() {
-                            $('#itemsTableBody').html(
-                                '<tr><td colspan="5" class="text-center text-danger">Failed to load items.</td></tr>'
-                            );
-                            showMessage('Failed to load items.', 'danger');
-                        });
-                }
-
-                // helper: clear form and errors
-                function clearForm() {
-                    $('#itemForm')[0].reset();
-                    $('#item_id').val('');
-                    $('.text-danger').remove();
-                }
-
-                // simple html escape
-                function escapeHtml(text) {
-                    return $('<div>').text(text).html();
-                }
-
-                // helper: show bootstrap alert
-                function showMessage(message, type = 'success') {
-                    var alertHtml = `
-            <div class="alert alert-` + type + ` alert-dismissible fade show" role="alert">
-              ` + message + `
-              <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-            </div>`;
-                    $('#alertArea').html(alertHtml);
-
-                    // Auto close after 3 sec
-                    setTimeout(() => {
-                        $('.alert').alert('close');
-                    }, 3000);
-                }
             });
         </script>
     @endpush
